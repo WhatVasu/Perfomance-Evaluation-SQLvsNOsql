@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+    <h2>Product Catalog ({{ total }} items)</h2>
+    <form method="get" action="/ui/products" style="display: flex; gap: 0.5rem;">
+        <input type="text" name="search" value="{{ search or '' }}" placeholder="Search products..." style="padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px;">
+        <button type="submit" class="btn">Search</button>
+    </form>
+</div>
+
+<div class="grid">
+    {% for product in products %}
+    <div class="card">
+        <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem;">{{ product.name }}</h3>
+        <p style="color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem;">{{ product.description }}</p>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <span style="font-size: 1.25rem; font-weight: 700; color: var(--primary);">${{ "%.2f"|format(product.price) }}</span>
+            <span style="font-size: 0.8rem; color: {% if product.stock > 0 %}var(--success){% else %}var(--danger){% endif %};">
+                {% if product.stock > 0 %}{{ product.stock }} in stock{% else %}Out of stock{% endif %}
+            </span>
+        </div>
+        <form method="post" action="/ui/cart/add">
+            <input type="hidden" name="product_id" value="{{ product.id }}">
+            <input type="hidden" name="quantity" value="1">
+            <button type="submit" class="btn" style="width: 100%;" {% if product.stock == 0 %}disabled{% endif %}>
+                Add to Cart
+            </button>
+        </form>
+    </div>
+    {% else %}
+    <p>No products found matching your criteria.</p>
+    {% endfor %}
+</div>
+{% endblock %}

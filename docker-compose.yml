@@ -1,0 +1,114 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: benchmark_postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-benchmark}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-benchmark_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce_benchmark}
+    command: >
+      postgres
+      -c synchronous_commit=on
+      -c max_connections=200
+      -c shared_buffers=512MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-benchmark} -d ${POSTGRES_DB:-ecommerce_benchmark}"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  mongo:
+    image: mongo:7.0
+    container_name: benchmark_mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "try { rs.status().ok } catch(e) { quit(1) }"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  mongo-init:
+    image: mongo:7.0
+    container_name: benchmark_mongo_init
+    depends_on:
+      mongo:
+        condition: service_started
+    restart: "no"
+    command: >
+      bash -c "
+      echo 'Waiting for MongoDB to be responsive...';
+      until mongosh --host mongo:27017 --eval 'quit(0)' 2>/dev/null; do
+        sleep 1;
+      done;
+      echo 'Initiating replica set rs0...';
+      mongosh --host mongo:27017 --eval '
+        try {
+          rs.status();
+          console.log(\"Replica set already initialized\");
+        } catch(e) {
+          rs.initiate({
+            _id: \"rs0\",
+            members: [{ _id: 0, host: \"mongo:27017\" }]
+          });
+          console.log(\"Replica set initiated successfully\");
+        }
+      ';
+      echo 'Replica set configuration complete.';
+      "
+
+  app:
+    build: .
+    container_name: benchmark_app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DB_BACKEND: ${DB_BACKEND:-postgres}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-benchmark}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-benchmark_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce_benchmark}
+      POSTGRES_POOL_SIZE: 50
+      POSTGRES_MAX_OVERFLOW: 0
+      MONGO_HOST: mongo
+      MONGO_PORT: 27017
+      MONGO_DB: ${MONGO_DB:-ecommerce_benchmark}
+      MONGO_REPLICA_SET: rs0
+      MONGO_POOL_SIZE: 50
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+
+volumes:
+  postgres_data:
+  mongo_data:
